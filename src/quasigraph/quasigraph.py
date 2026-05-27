@@ -6,28 +6,7 @@
 # MIT License
 #
 # Copyright (c) 2023 Leandro Seixas Rocha <leandro.fisica@gmail.com> 
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
 
-'''
-Module quasigraph
-'''
 
 import numpy as np
 import pandas as pd
@@ -42,6 +21,7 @@ class QuasiGraph(Atoms):
         Initialize the QuasiGraph object.
 
         Parameters:
+        -----------
         atoms : object
             The atomic structure object containing atom positions and other properties.
         pbc : list of bool, optional
@@ -58,6 +38,7 @@ class QuasiGraph(Atoms):
             List of chemical features to consider (default is ['VEC', 'atomic_radius', 'en_pauling', 'electron_affinity']).
 
         Attributes:
+        -----------
         atoms : object
             The atomic structure object.
         pbc : list of bool
@@ -233,6 +214,7 @@ class QuasiGraph(Atoms):
         Constructs a pandas DataFrame of element properties for the atoms.
         
         Parameters:
+        -----------
             features (list of str, optional): List of property names to include.
                 Available features are:
                     - 'group'
@@ -247,6 +229,7 @@ class QuasiGraph(Atoms):
                     - 'VEC'
         
         Returns:
+        --------
             pandas.DataFrame: A DataFrame with one row per atom and columns for each selected feature and geometric data.
         """
         
@@ -297,36 +280,7 @@ class QuasiGraph(Atoms):
             return df_filled
         else:
             return df
-    
 
-        # BACKUP CODE
-        # #Store Mendeleev data in memory
-        # symbols = set(self.atoms.get_chemical_symbols())
-        # # grp = {sym: element(sym).group_id for sym in symbols}
-        # # prd = {sym: element(sym).period for sym in symbols}
-        # # wei = {sym: element(sym).atomic_weight for sym in symbols}
-        # # cvr = {sym: element(sym).covalent_radius / 100 for sym in symbols}
-        # atr = {sym: element(sym).atomic_radius / 100 for sym in symbols}
-        # # vdw = {sym: element(sym).vdw_radius / 100 for sym in symbols}
-        # enp = {sym: element(sym).en_pauling for sym in symbols}
-        # eaf = {sym: element(sym).electron_affinity for sym in symbols}
-        # # dip = {sym: element(sym).dipole_polarizability for sym in symbols}
-
-        # # Valence electron concentration from ptable module
-        # vec = {sym: VEC[sym] for sym in symbols}
-        
-        # atoms_data = [{
-        #     'VEC': vec[atom.symbol],
-        #     # 'group': grp[atom.symbol],
-        #     # 'period': prd[atom.symbol],
-        #     # 'atomic_weight': wei[atom.symbol],
-        #     # 'covalent_radius': cvr[atom.symbol],
-        #     'atomic_radius': atr[atom.symbol],
-        #     # 'vdw_radius': vdw[atom.symbol],
-        #     'en_pauling': enp[atom.symbol],
-        #     'electron_affinity': eaf[atom.symbol],
-        #     # 'dipole_polarizability': dip[atom.symbol]
-        #     } for atom in self.atoms]
 
     def get_vector(self):
         df = self.get_dataframe()
@@ -336,7 +290,6 @@ class QuasiGraph(Atoms):
 if __name__ == '__main__':
   import sys
   from ase.io import read
-#   from ptable import VEC
   atoms = read(sys.argv[1])
   qgr = QuasiGraph(atoms, pbc=False, tolerance = 0.4, show_bonded_atoms=False, nmax=15)
   print(qgr.get_dataframe())

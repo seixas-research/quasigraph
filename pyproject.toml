@@ -4,9 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "quasigraph"
-version = "25.3.2"
+dynamic = ["version"]
 authors = [
-  { name="Leandro Seixas", email="leandro.fisica@gmail.com" },
+  { name="Leandro Seixas Rocha", email="leandro.fisica@gmail.com" },
 ]
 description = "quasigraph: Chemical and Geometric Descriptor Toolkit for Machine Learning Models."
 readme = "README.md"
@@ -15,8 +15,7 @@ dependencies = [
     'numpy',
     'pandas',
     'ase',
-    'mendeleev',
-    'acat'
+    'mendeleev'
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -27,5 +26,8 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/leseixas/quasigraph"
+"Homepage" = "https://github.com/seixas-research/quasigraph"
+
+[tool.hatch.version]
+path = "src/poraque/version.py"
 
