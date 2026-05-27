@@ -29,5 +29,5 @@ classifiers = [
 "Homepage" = "https://github.com/seixas-research/quasigraph"
 
 [tool.hatch.version]
-path = "src/poraque/version.py"
+path = "src/quasigraph/version.py"
 
