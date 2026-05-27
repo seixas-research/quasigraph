@@ -16,7 +16,14 @@ from itertools import product
 from .ptable import VEC
 
 class QuasiGraph(Atoms):
-    def __init__(self, atoms, pbc=[False, False, False], tolerance=0.4, normalization=True, show_bonded_atoms=False, nmax=None, chemical_features=['VEC', 'atomic_radius', 'en_pauling', 'electron_affinity']):
+    def __init__(self,
+                 atoms,
+                 pbc=[False, False, False],
+                 tolerance=0.4,
+                 normalization=True,
+                 show_bonded_atoms=False,
+                 nmax=None,
+                 chemical_features=['VEC', 'atomic_radius', 'en_pauling', 'electron_affinity']):
         """
         Initialize the QuasiGraph object.
 
@@ -283,13 +290,15 @@ class QuasiGraph(Atoms):
 
 
     def get_vector(self):
+        """
+        QuasiGraph descriptor as a flatten vector.
+        """
         df = self.get_dataframe()
         return df.values.flatten()
+    
+    
+    def __repr__(self):
+        return f"QuasiGraph(number_of_atoms={len(self.atoms)}, pbc={self.pbc}, nmax={self.nmax}, chemical_features={self.chemical_features})"
+    
+    # atoms={self.atoms.get_chemical_formula()}
 
-
-if __name__ == '__main__':
-  import sys
-  from ase.io import read
-  atoms = read(sys.argv[1])
-  qgr = QuasiGraph(atoms, pbc=False, tolerance = 0.4, show_bonded_atoms=False, nmax=15)
-  print(qgr.get_dataframe())

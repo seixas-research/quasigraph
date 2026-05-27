@@ -15,7 +15,8 @@ dependencies = [
     'numpy',
     'pandas',
     'ase',
-    'mendeleev'
+    'mendeleev',
+    'pytest'
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
