@@ -4,7 +4,6 @@
 
 [![PyPI - License](https://img.shields.io/pypi/l/quasigraph?color=green&style=for-the-badge)](LICENSE.txt)    [![PyPI](https://img.shields.io/pypi/v/quasigraph?color=red&label=version&style=for-the-badge)](https://pypi.org/project/quasigraph/) [![DOI](https://img.shields.io/badge/DOI-10.5281/zenodo.14963121-blue?style=for-the-badge)](https://doi.org/10.5281/zenodo.14963121)
 
-
 **Quasigraph** is an open-source toolkit designed for generating chemical and geometric descriptors to be used in machine learning models.
 
 # Installation
@@ -71,6 +70,13 @@ For example, for methanol (CH<sub>3</sub>OH) we have the geometric data, as show
 |     1 |  0.50 |
 |     1 |  1.00 |
 |     1 |  1.00 |
+
+# Package structure
+
+- `quasigraph.quasigraph.QuasiGraph` – user-facing class; wraps an ASE `Atoms` object and exposes `get_dataframe()` / `get_vector()` plus the attributes `cn`, `gcn`, `bonded_atoms`, `bonds`, `adjacency`, `distances` (non-periodic) and `distances_tensor` (periodic).
+- `quasigraph.geometry` – pure NumPy functions for distances, bonds, CN and GCN (`distance_matrix`, `distance_tensor`, `bonds_from_distance_matrix`, `coordination_numbers`, `generalized_coordination_numbers`, ...). They take plain arrays and can be reused without ASE.
+- `quasigraph.elements` – chemical features taken from the [Mendeleev library](https://github.com/lmmentel/mendeleev). Database lookups are cached per element symbol (`get_element`, `get_feature`), so the cost of a Mendeleev query is paid once per element per process instead of once per atom.
+- `quasigraph.ptable` – hand-curated tables (`VEC`, `CONFIG`) not available in Mendeleev.
 
 # License
 

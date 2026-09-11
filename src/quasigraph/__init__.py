@@ -8,5 +8,7 @@
 
 from .quasigraph import QuasiGraph
 from .ptable import *
+from .elements import AVAILABLE_FEATURES, get_element, get_feature
+from . import geometry
 
 from .version import __version__
