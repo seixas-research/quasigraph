@@ -16,19 +16,42 @@ def _chain(spacing):
     return distances, bonds, threshold, radii
 
 
-def test_smooth_cn_equals_cn_at_ideal_bond_length_and_decays_when_stretched():
-    distances, bonds, threshold, radii = _chain(1.0)
-    np.testing.assert_allclose(geometry.smooth_coordination_numbers(distances, bonds, threshold, radii), [1, 2, 1])
+def test_smooth_cn_is_a_sigmoid_centred_on_the_bond_threshold():
+    distances, bonds, threshold, radii = _chain(1.0)  # bonds 0.4 A inside the 1.4 A threshold
+    smooth = geometry.smooth_coordination_numbers(distances, threshold, temperature=0.1)
+    hard = geometry.coordination_numbers(bonds)
+    assert hard.tolist() == [1, 2, 1]
+    np.testing.assert_allclose(smooth, hard, atol=0.04)   # ~0.98 per bond, plus a tiny 2nd-neighbour tail
+    assert (smooth < hard).all() or np.allclose(smooth, hard)
     np.testing.assert_allclose(geometry.bond_strain(distances, bonds, radii), [0, 0, 0])
 
-    distances, bonds, threshold, radii = _chain(1.2)  # half-way through the switching window
-    smooth = geometry.smooth_coordination_numbers(distances, bonds, threshold, radii)
-    np.testing.assert_allclose(smooth, [0.5, 1.0, 0.5])
-    np.testing.assert_allclose(geometry.bond_strain(distances, bonds, radii), [0.2, 0.2, 0.2])
+    distances, _, threshold, _ = _chain(1.4)  # bonds exactly at the threshold: weight 0.5 each
+    smooth = geometry.smooth_coordination_numbers(distances, threshold, temperature=0.1)
+    np.testing.assert_allclose(smooth, [0.5, 1.0, 0.5], atol=1e-6)
 
-    distances, bonds, threshold, radii = _chain(1.5)  # beyond the threshold: no bonds at all
-    assert geometry.coordination_numbers(bonds).tolist() == [0, 0, 0]
-    np.testing.assert_allclose(geometry.smooth_coordination_numbers(distances, bonds, threshold, radii), 0)
+    # monotonic decrease with stretching, higher temperature gives a softer curve
+    values = [geometry.smooth_coordination_numbers(*_chain(a)[:1], _chain(a)[2], temperature=0.1)[1] for a in (1.0, 1.2, 1.4, 1.6)]
+    assert values == sorted(values, reverse=True)
+    soft = geometry.smooth_coordination_numbers(*_chain(1.6)[:1], _chain(1.6)[2], temperature=0.5)[1]
+    assert soft > values[-1]
+
+
+def test_smooth_cn_zero_temperature_reproduces_standard_cn():
+    for spacing in (1.0, 1.3, 1.5):
+        distances, bonds, threshold, _ = _chain(spacing)
+        smooth = geometry.smooth_coordination_numbers(distances, threshold, temperature=0.0)
+        np.testing.assert_array_equal(smooth, geometry.coordination_numbers(bonds))
+    with pytest.raises(ValueError):
+        geometry.smooth_coordination_numbers(distances, threshold, temperature=-1.0)
+
+
+def test_smooth_cn_temperature_is_a_constructor_argument():
+    atoms = bulk("Au", cubic=True).repeat([2, 2, 2])
+    cold = QuasiGraph(atoms, pbc=[True, True, True], temperature=0.0, geometric_features=["CN", "CN_smooth"]).get_dataframe()
+    np.testing.assert_array_equal(cold["CN_smooth"], cold["CN"])
+    warm = QuasiGraph(atoms, pbc=[True, True, True], temperature=0.1, geometric_features=["CN", "CN_smooth"]).get_dataframe()
+    np.testing.assert_allclose(warm["CN_smooth"], 12.0, atol=0.05)
+    assert not np.allclose(warm["CN_smooth"], 12.0, atol=1e-6)
 
 
 def test_bond_length_statistics():
@@ -49,7 +72,7 @@ def test_geometric_features_are_opt_in_and_validated():
         "VEC", "atomic_radius", "en_pauling", "electron_affinity", "CN", "GCN"]
     df = QuasiGraph(atoms, geometric_features=GEOMETRIC_FEATURES).get_dataframe()
     assert list(df.columns[4:]) == GEOMETRIC_FEATURES
-    assert (df["CN_smooth"] <= df["CN"]).all()
+    np.testing.assert_allclose(df["CN_smooth"], df["CN"], atol=0.1)
     assert df["bond_min"][0] == pytest.approx(df["bond_max"][0])  # both O-H bonds have equal length
     assert df["bond_std"][0] == pytest.approx(0.0)
     with pytest.raises(ValueError, match="Geometric feature 'XYZ' is not recognized"):

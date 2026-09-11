@@ -86,11 +86,11 @@ qgr.get_dataframe()   # ... CN, GCN, CN_smooth, bond_mean, bond_min, bond_max, b
 |---|---|
 | `CN` | number of bonded atoms (a pair is bonded when its distance is at most (1 + `tolerance`) times the sum of covalent radii) |
 | `GCN` | generalized coordination number |
-| `CN_smooth` | bond-length-weighted CN: a bond counts 1 when its length is at most the sum of covalent radii and decays with a cosine switch to 0 at the bond threshold, so `CN_smooth <= CN` |
+| `CN_smooth` | continuous CN: every pair contributes a sigmoid weight 1 / (1 + exp((d − r<sub>c</sub>) / T)) centred on the bond threshold r<sub>c</sub> = (1 + `tolerance`)(r<sub>i</sub> + r<sub>j</sub>), with `temperature` T in Å (default 0.1). T → 0 gives a step function and `CN_smooth` = `CN` |
 | `bond_mean`, `bond_min`, `bond_max`, `bond_std` | statistics of the atom's bond lengths (0 for an atom without bonds) |
 | `bond_strain` | mean of (bond length / sum of covalent radii) − 1: positive for stretched bonds |
 
-Covalent radii are the Pyykkö values from Mendeleev. Metallic bonds are typically 10–20 % longer than the sum of these radii, so in a perfect fcc metal `CN_smooth` is roughly 0.65 × `CN` and `bond_strain` ≈ 0.15; the useful information is the variation between sites.
+Covalent radii are the Pyykkö values from Mendeleev. Metallic bonds are typically 10–20 % longer than the sum of these radii, so in a perfect fcc metal `bond_strain` ≈ 0.15; the useful information is the variation between sites. With the default `temperature` of 0.1 Å a bond 0.3 Å inside the threshold has weight 0.95 and one 0.3 Å outside it 0.05, so `CN_smooth` stays close to `CN` while varying continuously with bond length; a larger `temperature` smooths more.
 
 ## Adsorption-site environment
 

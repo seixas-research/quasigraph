@@ -124,22 +124,37 @@ def _per_atom(values, bonds):
     return values[:, np.newaxis] if bonds.ndim == 2 else values[np.newaxis, :, np.newaxis]
 
 
-def smooth_coordination_numbers(distances, bonds, threshold, covalent_radii):
+def smooth_coordination_numbers(distances, threshold, temperature):
     """
     Coordination number with a continuous bond weight instead of a hard count.
 
-    A bond of length ``d`` between atoms i and j contributes 1 when
-    ``d <= r_i + r_j`` (sum of covalent radii, the ideal bond length) and then
-    decays with a cosine switch to 0 at the bond threshold used for the hard
-    CN.  Only pairs flagged in ``bonds`` contribute, so ``CN_smooth <= CN``.
+    Every pair (i, j) contributes a Fermi-type sigmoid weight centred on the
+    bond threshold ``r_c = (1 + tolerance) * (r_i + r_j)`` used by the hard CN::
+
+        w_ij = 1 / (1 + exp((d_ij - r_c) / temperature))
+
+    ``temperature`` (in the same length unit as the distances) sets the width
+    of the transition: w = 0.5 at the threshold, ~0.95 one ``3 * temperature``
+    inside it and ~0.05 one ``3 * temperature`` outside it.  As
+    ``temperature -> 0`` the weight becomes the step ``d_ij <= r_c`` and the
+    smooth CN equals the standard CN; ``temperature = 0`` returns that limit
+    exactly.  An atom never contributes to itself (zero distances are skipped,
+    as in the hard CN), and periodic images count separately.
     """
-    covalent_radii = np.asarray(covalent_radii, dtype=float)
-    ideal = covalent_radii[:, np.newaxis] + covalent_radii
-    with np.errstate(divide='ignore', invalid='ignore'):
-        x = (distances - ideal) / (threshold - ideal)
-        switch = 0.5 * (1 + np.cos(np.pi * x))
-    weights = np.where(distances <= ideal, 1.0, np.where(distances >= threshold, 0.0, switch))
-    return (weights * bonds).sum(axis=_neighbor_axes(bonds))
+    distances = np.asarray(distances, dtype=float)
+    if temperature < 0:
+        raise ValueError("temperature must be non-negative")
+    if temperature == 0:
+        weights = (distances <= threshold).astype(float)
+    else:
+        # sigmoid(x) written with tanh to avoid overflow in exp for large |x|
+        x = (threshold - distances) / temperature
+        weights = 0.5 * (1 + np.tanh(0.5 * x))
+    if weights.ndim == 2:
+        np.fill_diagonal(weights, 0.0)
+    else:
+        weights = np.where(distances > 0, weights, 0.0)
+    return weights.sum(axis=_neighbor_axes(weights))
 
 
 def bond_length_statistics(distances, bonds):

@@ -23,6 +23,7 @@ class QuasiGraph(Atoms):
                  atoms,
                  pbc=[False, False, False],
                  tolerance=0.4,
+                 temperature=0.1,
                  normalization=True,
                  show_bonded_atoms=False,
                  nmax=None,
@@ -39,6 +40,10 @@ class QuasiGraph(Atoms):
             Periodic boundary conditions along the three axes (default is [False, False, False]).
         tolerance : float, optional
             Tolerance value for determining bonded atoms (default is 0.4).
+        temperature : float, optional
+            Width (in angstrom) of the sigmoid used by the ``CN_smooth`` feature,
+            centred on the bond threshold (1 + tolerance) * (r_i + r_j).  0 gives
+            a step function and reproduces the standard CN (default is 0.1).
         normalization : bool, optional
             Whether to normalize the chemical features (default is True).
         show_bonded_atoms : bool, optional
@@ -90,6 +95,7 @@ class QuasiGraph(Atoms):
         self.atoms = atoms
         self.pbc = pbc
         self.tolerance: float = tolerance
+        self.temperature: float = temperature
         self.normalization: bool = normalization
         self.show_bonded_atoms: bool = show_bonded_atoms
         self.nmax = nmax
@@ -174,7 +180,7 @@ class QuasiGraph(Atoms):
         if self._geometric_table is None:
             distances, bonds, radii = self._bond_distances, self.bonds, self.covalent_radii
             table = {'CN': self.cn, 'GCN': self.gcn,
-                     'CN_smooth': geometry.smooth_coordination_numbers(distances, bonds, self.bond_threshold, radii)}
+                     'CN_smooth': geometry.smooth_coordination_numbers(distances, self.bond_threshold, self.temperature)}
             table.update(geometry.bond_length_statistics(distances, bonds))
             table['bond_strain'] = geometry.bond_strain(distances, bonds, radii)
             self._geometric_table = table
