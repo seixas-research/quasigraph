@@ -71,6 +71,39 @@ For example, for methanol (CH<sub>3</sub>OH) we have the geometric data, as show
 |     1 |  1.00 |
 |     1 |  1.00 |
 
+## Continuous bond information (optional)
+
+By default the geometric part is `CN` and `GCN`. The `geometric_features` argument selects any of the per-atom features below; the chemical columns come first, then the geometric ones in the order given.
+
+```python
+from quasigraph import QuasiGraph, GEOMETRIC_FEATURES
+
+qgr = QuasiGraph(atoms, geometric_features=GEOMETRIC_FEATURES)
+qgr.get_dataframe()   # ... CN, GCN, CN_smooth, bond_mean, bond_min, bond_max, bond_std, bond_strain
+```
+
+| Feature | Meaning |
+|---|---|
+| `CN` | number of bonded atoms (a pair is bonded when its distance is at most (1 + `tolerance`) times the sum of covalent radii) |
+| `GCN` | generalized coordination number |
+| `CN_smooth` | bond-length-weighted CN: a bond counts 1 when its length is at most the sum of covalent radii and decays with a cosine switch to 0 at the bond threshold, so `CN_smooth <= CN` |
+| `bond_mean`, `bond_min`, `bond_max`, `bond_std` | statistics of the atom's bond lengths (0 for an atom without bonds) |
+| `bond_strain` | mean of (bond length / sum of covalent radii) − 1: positive for stretched bonds |
+
+Covalent radii are the Pyykkö values from Mendeleev. Metallic bonds are typically 10–20 % longer than the sum of these radii, so in a perfect fcc metal `CN_smooth` is roughly 0.65 × `CN` and `bond_strain` ≈ 0.15; the useful information is the variation between sites.
+
+## Adsorption-site environment
+
+For a target that depends on one atom, such as the adsorption free energy of a hydrogen atom, `get_site_environment` aggregates the descriptor over the neighbour shells of that atom on the bond graph and returns a fixed-length, named vector that does not depend on the number of atoms or their order:
+
+```python
+qgr = QuasiGraph(atoms, geometric_features=GEOMETRIC_FEATURES)
+env = qgr.get_site_environment("H", shells=2, elements=["Ag", "Au", "Cu", "Pd", "Pt"])  # pandas Series
+vector = qgr.get_site_vector("H", shells=2, elements=["Ag", "Au", "Cu", "Pd", "Pt"])   # numpy array
+```
+
+`site` is an atom index or a chemical symbol that occurs once in the structure. The Series contains `site_<feature>` for the site atom itself and, for each shell *k* (atoms *k* bonds away from the site): `shell<k>_n`, `shell<k>_n_<El>` (counts per element in `elements`), `shell<k>_dist_mean/min/max` (distance from the site), `shell<k>_<feature>_mean` for chemical features and `shell<k>_<feature>_mean/min/max` for geometric features. Pass the same `elements` list for every structure of a dataset so all vectors have the same length; an empty shell contributes zeros.
+
 # Package structure
 
 - `quasigraph.quasigraph.QuasiGraph` – user-facing class; wraps an ASE `Atoms` object and exposes `get_dataframe()` / `get_vector()` plus the attributes `cn`, `gcn`, `bonded_atoms`, `bonds`, `adjacency`, `distances` (non-periodic) and `distances_tensor` (periodic).

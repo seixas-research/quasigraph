@@ -6,7 +6,7 @@
 #
 # Copyright (c) 2023 Leandro Seixas Rocha <leandro.fisica@gmail.com>
 
-from .quasigraph import QuasiGraph
+from .quasigraph import QuasiGraph, GEOMETRIC_FEATURES
 from .ptable import *
 from .elements import AVAILABLE_FEATURES, get_element, get_feature
 from . import geometry

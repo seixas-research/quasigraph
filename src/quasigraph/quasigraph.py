@@ -15,6 +15,9 @@ from ase import Atoms
 from . import elements, geometry
 
 
+GEOMETRIC_FEATURES = ['CN', 'GCN', 'CN_smooth', 'bond_mean', 'bond_min', 'bond_max', 'bond_std', 'bond_strain']
+
+
 class QuasiGraph(Atoms):
     def __init__(self,
                  atoms,
@@ -23,7 +26,8 @@ class QuasiGraph(Atoms):
                  normalization=True,
                  show_bonded_atoms=False,
                  nmax=None,
-                 chemical_features=['VEC', 'atomic_radius', 'en_pauling', 'electron_affinity']):
+                 chemical_features=['VEC', 'atomic_radius', 'en_pauling', 'electron_affinity'],
+                 geometric_features=['CN', 'GCN']):
         """
         Initialize the QuasiGraph object.
 
@@ -43,6 +47,10 @@ class QuasiGraph(Atoms):
             Maximum number of neighbors to consider (default is None).
         chemical_features : list of str, optional
             List of chemical features to consider (default is ['VEC', 'atomic_radius', 'en_pauling', 'electron_affinity']).
+        geometric_features : list of str, optional
+            List of per-atom geometric features to consider (default is ['CN', 'GCN']).
+            Available: 'CN', 'GCN', 'CN_smooth', 'bond_mean', 'bond_min', 'bond_max',
+            'bond_std', 'bond_strain' (see ``GEOMETRIC_FEATURES``).
 
         Attributes:
         -----------
@@ -86,9 +94,12 @@ class QuasiGraph(Atoms):
         self.show_bonded_atoms: bool = show_bonded_atoms
         self.nmax = nmax
         self.chemical_features = chemical_features
+        self.geometric_features = geometric_features
+        self._geometric_table = None
 
         positions = self.atoms.get_positions()
-        threshold = geometry.bond_threshold(self.covalent_radii, self.tolerance)
+        self.bond_threshold = geometry.bond_threshold(self.covalent_radii, self.tolerance)
+        threshold = self.bond_threshold
 
         if any(self.pbc):
             self.offsets = [int(offset) for offset in self.pbc]
@@ -140,6 +151,128 @@ class QuasiGraph(Atoms):
         gcn = geometry.generalized_coordination_numbers(self.adjacency, self.cn, self.normalization)
         return list(gcn)
 
+    @property
+    def pair_distances(self):
+        """
+        (n_atoms, n_atoms) distance matrix.  For periodic structures this is the
+        minimum-image distance (smallest distance over all lattice offsets).
+        """
+        if any(self.pbc):
+            return self.distances_tensor.min(axis=0)
+        return self.distances
+
+    @property
+    def _bond_distances(self):
+        """Distances with the same shape as ``self.bonds``."""
+        return self.distances_tensor if any(self.pbc) else self.distances
+
+    def get_geometric_features(self):
+        """
+        Per-atom geometric features as a dict of name -> (n_atoms,) array, for
+        every name in ``GEOMETRIC_FEATURES`` (computed once, on first use).
+        """
+        if self._geometric_table is None:
+            distances, bonds, radii = self._bond_distances, self.bonds, self.covalent_radii
+            table = {'CN': self.cn, 'GCN': self.gcn,
+                     'CN_smooth': geometry.smooth_coordination_numbers(distances, bonds, self.bond_threshold, radii)}
+            table.update(geometry.bond_length_statistics(distances, bonds))
+            table['bond_strain'] = geometry.bond_strain(distances, bonds, radii)
+            self._geometric_table = table
+        return self._geometric_table
+
+    @staticmethod
+    def validate_geometric_features(features):
+        for feature in features:
+            if feature not in GEOMETRIC_FEATURES:
+                raise ValueError(f"Geometric feature '{feature}' is not recognized. Available features: {GEOMETRIC_FEATURES}")
+
+    def _atom_table(self):
+        """One row per atom: the selected chemical features followed by the selected geometric features."""
+        elements.validate_features(self.chemical_features)
+        self.validate_geometric_features(self.geometric_features)
+
+        # Chemical data: one row per atom, one column per feature (cached per element symbol)
+        atoms_data = [{feature: elements.get_feature(symbol, feature) for feature in self.chemical_features}
+                      for symbol in self.chemical_symbols]
+        df = pd.DataFrame(atoms_data)
+
+        # Geometric data
+        geometric = self.get_geometric_features()
+        for feature in self.geometric_features:
+            df[feature] = geometric[feature]
+        return df
+
+    def _resolve_site(self, site):
+        """Turn ``site`` (atom index or a chemical symbol occurring exactly once) into an atom index."""
+        symbols = self.chemical_symbols
+        if isinstance(site, str):
+            matches = [i for i, symbol in enumerate(symbols) if symbol == site]
+            if len(matches) != 1:
+                raise ValueError(f"Site symbol '{site}' occurs {len(matches)} times; pass an atom index instead.")
+            return matches[0]
+        return range(len(symbols))[site]
+
+    def get_site_environment(self, site, shells=2, elements=None):
+        """
+        Local-environment descriptor of one atom (e.g. an adsorbate) as a
+        pandas Series of named features.
+
+        Parameters:
+        -----------
+        site : int or str
+            Atom index (negative indices allowed) or a chemical symbol that
+            occurs exactly once in the structure (e.g. ``'H'``).
+        shells : int, optional
+            Number of neighbour shells to aggregate (default 2).  Shell k holds
+            the atoms k bonds away from the site on the bond graph.
+        elements : list of str, optional
+            Element symbols for the per-element neighbour counts.  Pass the
+            same list for every structure of a dataset to get vectors of equal
+            length; default is the sorted set of symbols in this structure.
+
+        Returns:
+        --------
+            pandas.Series with, for the site, ``site_<feature>`` for every
+            selected chemical and geometric feature, and for every shell k:
+            ``shell<k>_n`` (atom count), ``shell<k>_n_<El>`` (count per element),
+            ``shell<k>_dist_mean/min/max`` (distance from the site),
+            ``shell<k>_<feature>_mean`` for chemical features and
+            ``shell<k>_<feature>_mean/min/max`` for geometric features.
+            Statistics of an empty shell are 0.
+        """
+        index = self._resolve_site(site)
+        table = self._atom_table()
+        symbols = np.asarray(self.chemical_symbols)
+        if elements is None:
+            elements = sorted(set(symbols.tolist()))
+        distances_from_site = self.pair_distances[index]
+
+        features = {f'site_{name}': value for name, value in table.iloc[index].items()}
+        for k, shell in enumerate(geometry.neighbor_shells(self.adjacency, index, shells), start=1):
+            prefix = f'shell{k}_'
+            has_atoms = len(shell) > 0
+            features[prefix + 'n'] = len(shell)
+            for element in elements:
+                features[prefix + f'n_{element}'] = int(np.count_nonzero(symbols[shell] == element))
+            d = distances_from_site[shell]
+            features[prefix + 'dist_mean'] = d.mean() if has_atoms else 0.0
+            features[prefix + 'dist_min'] = d.min() if has_atoms else 0.0
+            features[prefix + 'dist_max'] = d.max() if has_atoms else 0.0
+            subset = table.iloc[shell]
+            for name in self.chemical_features:
+                column = pd.to_numeric(subset[name], errors='coerce')
+                features[prefix + f'{name}_mean'] = column.mean() if has_atoms else 0.0
+            for name in self.geometric_features:
+                column = subset[name].to_numpy(dtype=float)
+                features[prefix + f'{name}_mean'] = column.mean() if has_atoms else 0.0
+                features[prefix + f'{name}_min'] = column.min() if has_atoms else 0.0
+                features[prefix + f'{name}_max'] = column.max() if has_atoms else 0.0
+        return pd.Series(features)
+
+    def get_site_vector(self, site, shells=2, elements=None):
+        """``get_site_environment`` as a flat float vector."""
+        return self.get_site_environment(site, shells=shells, elements=elements).to_numpy(dtype=float)
+
     def get_dataframe(self):
         """
         Constructs a pandas DataFrame of element properties for the atoms.
@@ -161,18 +294,10 @@ class QuasiGraph(Atoms):
         
         Returns:
         --------
-            pandas.DataFrame: A DataFrame with one row per atom and columns for each selected feature and geometric data.
+            pandas.DataFrame: A DataFrame with one row per atom and columns for each selected chemical
+            feature followed by each selected geometric feature (default ``CN`` and ``GCN``).
         """
-        elements.validate_features(self.chemical_features)
-
-        # Chemical data: one row per atom, one column per feature (cached per element symbol)
-        atoms_data = [{feature: elements.get_feature(symbol, feature) for feature in self.chemical_features}
-                      for symbol in self.chemical_symbols]
-        df = pd.DataFrame(atoms_data)
-
-        # Geometric data
-        df['CN'] = self.cn
-        df['GCN'] = self.gcn
+        df = self._atom_table()
         if self.show_bonded_atoms:
             df['bonded_atoms'] = self.bonded_atoms
 
