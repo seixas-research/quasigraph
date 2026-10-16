@@ -10,21 +10,32 @@ authors = [
 ]
 description = "quasigraph: Chemical and Geometric Descriptor Toolkit for Machine Learning Models."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     'numpy',
     'pandas',
     'ase',
-    'mendeleev',
-    'pytest'
+    'vesin>=0.6',
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Chemistry",
     "Topic :: Scientific/Engineering :: Physics"
 ]
+
+[project.optional-dependencies]
+ml = ['scikit-learn']
+pymatgen = ['pymatgen']
+graph = ['networkx']
+mendeleev = ['mendeleev']
+test = ['pytest', 'scikit-learn', 'networkx']
+dev = ['quasigraph[test,mendeleev]', 'ruff', 'mypy']
 
 [project.urls]
 "Homepage" = "https://github.com/seixas-research/quasigraph"
@@ -32,3 +43,18 @@ classifiers = [
 [tool.hatch.version]
 path = "src/quasigraph/version.py"
 
+[tool.pytest.ini_options]
+testpaths = ["test"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"test/*" = ["E501"]
+
+[tool.mypy]
+files = ["src/quasigraph"]
+ignore_missing_imports = true

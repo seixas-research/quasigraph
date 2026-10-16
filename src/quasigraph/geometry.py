@@ -31,6 +31,31 @@ def periodic_offsets(offsets):
     return [list(comb) for comb in product(*offset_basis)]
 
 
+def periodic_image_range(cell, positions, pbc, cutoff):
+    """
+    Number of lattice translations to enumerate along each cell axis so that
+    every pair of atoms closer than ``cutoff`` is found (input for
+    ``periodic_offsets``).
+
+    Along axis i, with lattice-plane spacing d_i, an image n cells away is at
+    least ``|ds + n| * d_i`` from an atom, where ``ds`` is the difference of the
+    fractional coordinates of the two atoms.  So ``|n| <= cutoff / d_i + spread``
+    suffices, with ``spread`` the extent of the fractional coordinates along
+    that axis (below 1 for wrapped positions; unwrapped positions are handled
+    too).  Non-periodic axes get 0; periodic axes at least 1, so that
+    minimum-image distances stay available.  ``cell`` must be non-singular
+    (complete the vectors of non-periodic axes, e.g. ``atoms.cell.complete()``).
+    """
+    cell = np.asarray(cell, dtype=float)
+    pbc = np.asarray(pbc, dtype=bool)
+    reciprocal = np.linalg.inv(cell)  # column i is the reciprocal vector b_i (without 2 pi)
+    spacing = 1 / np.linalg.norm(reciprocal, axis=0)
+    scaled = np.asarray(positions, dtype=float).reshape(-1, 3) @ reciprocal
+    spread = scaled.max(axis=0) - scaled.min(axis=0) if len(scaled) else np.zeros(3)
+    n_images = np.maximum(1, np.floor(cutoff / spacing + spread + 1e-9).astype(int))
+    return np.where(pbc, n_images, 0).tolist()
+
+
 def distance_matrix(positions):
     """(n_atoms, n_atoms) matrix of distances ``|r_i - r_j|``."""
     positions = np.asarray(positions, dtype=float)
@@ -94,19 +119,44 @@ def neighbor_lists(adjacency_matrix):
     return [np.flatnonzero(row).tolist() for row in adjacency_matrix]
 
 
-def generalized_coordination_numbers(adjacency_matrix, cn, normalization=True):
+def bond_multiplicity(bonds):
+    """
+    Integer (n, n) matrix with the number of bonds between atoms i and j.
+    Periodic images of the same neighbour count separately, so in a small
+    cell an atom can be bonded several times to j (or to itself).
+    """
+    if bonds.ndim == 2:
+        return bonds.astype(int)
+    return bonds.sum(axis=0)
+
+
+def generalized_coordination_numbers(adjacency_matrix, cn, normalization=True, cn_max=None):
     """
     GCN of every atom: the sum of the coordination numbers of its neighbours,
-    divided by the largest coordination number in the structure when
-    ``normalization`` is true.
+    divided, when ``normalization`` is true, by ``cn_max`` or by default by
+    the largest coordination number in the structure (no division when no
+    atom has a bond).
+
+    ``adjacency_matrix`` gives the number of bonds between atoms i and j; pass
+    ``bond_multiplicity(bonds)`` for a periodic structure so that every
+    periodic image of a neighbour is counted, as in the CN.
     """
     cn = np.asarray(cn)
-    if normalization:
-        norm_cn = cn.max() if cn.size else 1
-    else:
-        norm_cn = 1
+    norm_cn = _gcn_norm(cn, normalization, cn_max)
     neighbor_cn_sum = np.asarray(adjacency_matrix, dtype=cn.dtype) @ cn
     return neighbor_cn_sum / norm_cn
+
+
+def _gcn_norm(cn, normalization, cn_max):
+    """Divisor of the GCN (see ``generalized_coordination_numbers``)."""
+    if not normalization:
+        return 1
+    if cn_max is not None:
+        if cn_max <= 0:
+            raise ValueError("cn_max must be positive")
+        return cn_max
+    norm_cn = cn.max() if cn.size else 1
+    return norm_cn if norm_cn != 0 else 1
 
 
 # ---------------------------------------------------------------------------
@@ -217,4 +267,56 @@ def neighbor_shells(adjacency_matrix, index, n_shells=2):
         frontier = np.flatnonzero(reachable)
         visited |= reachable
         shells.append(frontier)
+    return shells
+
+
+def image_neighbor_shells(bonds, offsets_list, index, n_shells=2):
+    """
+    Neighbour shells of atom ``index`` (in the home cell) on the bond graph in
+    which every periodic image of an atom is a separate node.  This differs
+    from ``neighbor_shells`` in small cells, where several images of one atom
+    (or of the site itself) can be neighbours.
+
+    ``bonds`` is a (n_offsets, n, n) bond tensor over ``offsets_list``, or a
+    (n, n) bond matrix for a non-periodic structure (``offsets_list`` is then
+    ignored).  Returns one ``(atoms, images)`` pair per shell, as
+    ``pair_neighbor_shells``.
+    """
+    if bonds.ndim == 2:
+        bonds, offsets_list = bonds[np.newaxis], [[0, 0, 0]]
+    offsets = np.asarray(offsets_list, dtype=int).reshape(-1, 3)
+    k_idx, i_idx, j_idx = np.nonzero(bonds)
+    return pair_neighbor_shells(i_idx, j_idx, offsets[k_idx], bonds.shape[1], index, n_shells)
+
+
+def pair_neighbor_shells(i, j, shifts, n_atoms, index, n_shells=2):
+    """
+    Neighbour shells of atom ``index`` (in the home cell) on the periodic bond
+    graph given as a list of bonds: atom ``j`` translated by the integer
+    lattice vector ``shifts[b]`` is bonded to atom ``i`` for every bond ``b``.
+
+    Returns one ``(atoms, images)`` pair per shell: ``atoms`` holds the (n_k,)
+    atom indices and ``images`` the (n_k, 3) integer lattice translations of
+    the atoms whose shortest path to the site has exactly k bonds, sorted by
+    atom index and translation.
+    """
+    neighbors = [[] for _ in range(n_atoms)]
+    for a, b, shift in zip(np.asarray(i).tolist(), np.asarray(j).tolist(), np.asarray(shifts, dtype=int).tolist()):
+        neighbors[a].append((b, tuple(shift)))
+
+    origin = (0, 0, 0)
+    visited = {(index, origin)}
+    frontier = [(index, origin)]
+    shells = []
+    for _ in range(n_shells):
+        reached = set()
+        for atom, image in frontier:
+            for b, shift in neighbors[atom]:
+                node = (b, tuple(x + y for x, y in zip(image, shift)))
+                if node not in visited:
+                    visited.add(node)
+                    reached.add(node)
+        frontier = sorted(reached)
+        shells.append((np.array([atom for atom, _ in frontier], dtype=int),
+                       np.array([image for _, image in frontier], dtype=int).reshape(-1, 3)))
     return shells

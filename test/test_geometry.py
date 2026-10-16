@@ -79,6 +79,7 @@ def test_distances_list_is_only_defined_for_periodic_structures():
 
 
 def test_element_lookup_is_cached():
+    pytest.importorskip("mendeleev")
     get_element.cache_clear()
     assert get_element("Pt") is get_element("Pt")
     assert get_element.cache_info().hits >= 1

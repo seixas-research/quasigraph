@@ -9,38 +9,76 @@
 """
 Per-element chemical properties.
 
-Every property is fetched from the ``mendeleev`` database, which is an
-SQLAlchemy ORM.  A single ``mendeleev.element(symbol)`` call costs roughly
-0.2 s because it loads the element together with all of its related tables,
-so lookups are cached per chemical symbol for the lifetime of the process.
+The properties come from the ``mendeleev`` database, bundled with quasigraph
+as ``data/elements.json`` (regenerate it with ``scripts/build_element_table.py``).
+Reading the bundled table avoids the slow database queries (~0.2 s per
+element) and makes the results independent of the installed ``mendeleev``
+version; ``mendeleev`` itself is only needed by ``get_element``.
+
+Values are returned as floats; a property missing from the database (e.g. the
+Pauling electronegativity of Ne) becomes NaN, with a warning.
 """
 
+import json
+import warnings
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
-from mendeleev import element as _mendeleev_element
 
 from .ptable import VEC
+
+_TABLE_PATH = Path(__file__).resolve().parent / 'data' / 'elements.json'
+
+
+class MissingFeatureWarning(UserWarning):
+    """A chemical property is missing from the database and was replaced by NaN."""
+
+
+@lru_cache(maxsize=None)
+def element_table():
+    """Bundled per-element properties: symbol -> {mendeleev attribute: value in database units}."""
+    return json.loads(_TABLE_PATH.read_text())['elements']
 
 
 @lru_cache(maxsize=None)
 def get_element(symbol):
-    """Return the ``mendeleev`` Element for ``symbol``, loading it from the database only once."""
-    return _mendeleev_element(symbol)
+    """
+    Return the ``mendeleev`` Element for ``symbol``, loading it from the
+    database only once.  Requires the optional ``mendeleev`` package; the
+    descriptor itself uses the bundled table instead.
+    """
+    try:
+        from mendeleev import element
+    except ImportError as error:
+        raise ImportError("get_element needs mendeleev: pip install mendeleev") from error
+    return element(symbol)
 
 
-# Mapping from feature name to a function that returns the property given an element symbol.
+def _table_property(name, divisor=1):
+    """Function returning property ``name`` of an element divided by ``divisor`` (None if missing)."""
+    def lookup(symbol):
+        try:
+            value = element_table()[symbol][name]
+        except KeyError:
+            raise ValueError(f"Unknown chemical element '{symbol}'") from None
+        return None if value is None else value / divisor
+    return lookup
+
+
+# Mapping from feature name to a function that returns the property (None if
+# unknown) given an element symbol.  Radii are converted from pm to angstrom.
 FEATURE_FUNCTIONS = {
-    'group': lambda sym: get_element(sym).group_id,
-    'period': lambda sym: get_element(sym).period,
-    'atomic_weight': lambda sym: get_element(sym).atomic_weight,
-    'covalent_radius': lambda sym: get_element(sym).covalent_radius / 100,
-    'atomic_radius': lambda sym: get_element(sym).atomic_radius / 100,
-    'vdw_radius': lambda sym: get_element(sym).vdw_radius / 100,
-    'en_pauling': lambda sym: get_element(sym).en_pauling,
-    'electron_affinity': lambda sym: get_element(sym).electron_affinity,
-    'dipole_polarizability': lambda sym: get_element(sym).dipole_polarizability,
-    'VEC': lambda sym: VEC[sym],
+    'group': _table_property('group_id'),
+    'period': _table_property('period'),
+    'atomic_weight': _table_property('atomic_weight'),
+    'covalent_radius': _table_property('covalent_radius', 100),
+    'atomic_radius': _table_property('atomic_radius', 100),
+    'vdw_radius': _table_property('vdw_radius', 100),
+    'en_pauling': _table_property('en_pauling'),
+    'electron_affinity': _table_property('electron_affinity'),
+    'dipole_polarizability': _table_property('dipole_polarizability'),
+    'VEC': lambda sym: VEC.get(sym),
 }
 
 AVAILABLE_FEATURES = list(FEATURE_FUNCTIONS.keys())
@@ -55,11 +93,23 @@ def validate_features(features):
 
 @lru_cache(maxsize=None)
 def get_feature(symbol, feature):
-    """Return the value of chemical ``feature`` for the element ``symbol`` (cached)."""
+    """
+    Return the value of chemical ``feature`` for the element ``symbol`` as a
+    float (cached).  A value missing from the database is NaN, with a warning
+    issued once per element and feature.
+    """
     validate_features([feature])
-    return FEATURE_FUNCTIONS[feature](symbol)
+    value = FEATURE_FUNCTIONS[feature](symbol)
+    if value is None:
+        warnings.warn(f"Feature '{feature}' is not available for {symbol}; using NaN.", MissingFeatureWarning)
+        return np.nan
+    return float(value)
 
 
 def covalent_radii(symbols):
     """Covalent radii in angstrom, one entry per symbol in ``symbols``."""
-    return np.array([get_feature(symbol, 'covalent_radius') for symbol in symbols])
+    radii = np.array([get_feature(symbol, 'covalent_radius') for symbol in symbols], dtype=float)
+    missing = sorted({symbol for symbol, radius in zip(symbols, radii) if np.isnan(radius)})
+    if missing:
+        raise ValueError(f"No covalent radius for {missing}; bonds cannot be determined.")
+    return radii
